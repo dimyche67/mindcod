@@ -47,7 +47,7 @@ export function RegisterPage() {
     <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center px-4">
       <div className="bg-white rounded-xl shadow-sm border border-[#E2E8F0] w-full max-w-sm p-8">
         <div className="text-center mb-8">
-          <Link to="/" className="text-2xl font-bold text-[#2563EB]">AI Офис</Link>
+          <Link to="/" className="text-2xl font-bold text-[#2563EB]">Mindcod</Link>
           <p className="text-sm text-[#64748B] mt-1">Регистрация компании</p>
         </div>
 

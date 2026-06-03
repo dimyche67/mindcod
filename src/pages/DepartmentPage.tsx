@@ -163,7 +163,7 @@ export function DepartmentPage() {
       {/* Header */}
       <header className="bg-white border-b border-[#E2E8F0] h-14 flex items-center justify-between px-4 md:px-6 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <span className="font-bold text-[#2563EB]">AI Офис</span>
+          <span className="font-bold text-[#2563EB]">Mindcod</span>
           <Link to="/dashboard" className="text-sm text-[#64748B] hover:text-[#1E293B] transition-colors hidden sm:inline">
             ← Все отделы
           </Link>

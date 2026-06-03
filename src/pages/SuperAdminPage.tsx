@@ -61,7 +61,7 @@ export function SuperAdminPage() {
       {/* Header */}
       <header className="bg-white border-b border-[#E2E8F0] h-14 flex items-center justify-between px-6">
         <div className="flex items-center gap-3">
-          <span className="font-bold text-[#2563EB] text-lg">AI Офис</span>
+          <span className="font-bold text-[#2563EB] text-lg">Mindcod</span>
           <span className="text-xs bg-[#1E293B] text-white px-2 py-0.5 rounded font-mono">SUPERADMIN</span>
         </div>
         <button onClick={logout} className="text-sm border border-[#E2E8F0] px-3 py-1.5 rounded-lg hover:bg-[#F8F9FA] cursor-pointer">Выйти</button>

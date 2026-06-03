@@ -39,7 +39,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <div className={`flex items-center gap-2 px-4 py-4 border-b border-[#E2E8F0] ${collapsed ? "justify-center" : "justify-between"}`}>
         {!collapsed && (
           <Link to="/dashboard" className="font-bold text-[#2563EB] text-lg leading-none">
-            AI Офис
+            Mindcod
           </Link>
         )}
         <button
@@ -141,7 +141,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <span className="font-bold text-[#2563EB]">AI Офис</span>
+          <span className="font-bold text-[#2563EB]">Mindcod</span>
           <div className="w-5" />
         </div>
 

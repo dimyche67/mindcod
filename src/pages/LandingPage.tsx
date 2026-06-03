@@ -11,7 +11,7 @@ export function LandingPage() {
       {/* Header */}
       <header className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-[#E2E8F0]">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <span className="text-xl font-bold text-[#2563EB]">AI Офис</span>
+          <span className="text-xl font-bold text-[#2563EB]">Mindcod</span>
           <nav className="hidden md:flex items-center gap-8 text-sm text-[#64748B]">
             <a href="#features" className="hover:text-[#1E293B] transition-colors">Возможности</a>
             <a href="#crm" className="hover:text-[#1E293B] transition-colors">CRM</a>
@@ -55,7 +55,7 @@ export function LandingPage() {
       {/* Features */}
       <section id="features" className="bg-[#F8F9FA] py-20">
         <div className="max-w-6xl mx-auto px-6">
-          <h2 className="text-3xl font-bold text-[#1E293B] text-center mb-4">Что умеет AI Офис</h2>
+          <h2 className="text-3xl font-bold text-[#1E293B] text-center mb-4">Что умеет Mindcod</h2>
           <p className="text-center text-[#64748B] mb-12 max-w-xl mx-auto">Полный набор инструментов для автоматизации рутины в каждом отделе</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[
@@ -229,7 +229,7 @@ export function LandingPage() {
       <section id="reviews" className="bg-[#F8F9FA] py-20">
         <div className="max-w-6xl mx-auto px-6">
           <h2 className="text-3xl font-bold text-[#1E293B] text-center mb-4">Отзывы клиентов</h2>
-          <p className="text-center text-[#64748B] mb-12">Что говорят команды, которые уже работают с AI Офис</p>
+          <p className="text-center text-[#64748B] mb-12">Что говорят команды, которые уже работают с Mindcod</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[
               {
@@ -349,14 +349,14 @@ export function LandingPage() {
       {/* Footer */}
       <footer className="border-t border-[#E2E8F0] py-8 bg-[#F8F9FA]">
         <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="font-bold text-[#2563EB]">AI Офис</span>
+          <span className="font-bold text-[#2563EB]">Mindcod</span>
           <nav className="flex items-center gap-6 text-sm text-[#94A3B8]">
             <a href="#features" className="hover:text-[#64748B]">Возможности</a>
             <a href="#crm" className="hover:text-[#64748B]">CRM</a>
             <a href="#pricing" className="hover:text-[#64748B]">Тарифы</a>
             <a href="#contacts" className="hover:text-[#64748B]">Контакты</a>
           </nav>
-          <span className="text-sm text-[#94A3B8]">© 2026 AI Офис</span>
+          <span className="text-sm text-[#94A3B8]">© 2026 Mindcod</span>
         </div>
       </footer>
     </div>

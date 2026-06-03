@@ -128,7 +128,7 @@ document.getElementById('ai-lead-form').addEventListener('submit', async functio
 }
 
 function genWidgetSnippet(integration: CrmIntegration): string {
-  return `<!-- AI Офис виджет — вставьте перед </body> -->
+  return `<!-- Mindcod виджет — вставьте перед </body> -->
 <script src="${BASE}/api/integrations/widget.js?key=${integration.api_key}" async><\/script>`;
 }
 

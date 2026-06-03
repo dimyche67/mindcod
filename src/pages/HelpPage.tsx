@@ -162,7 +162,7 @@ export function HelpPage() {
       <div className="max-w-3xl mx-auto px-6 py-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-[#1E293B]">Справочник</h1>
-          <p className="text-sm text-[#64748B] mt-1">Инструкции по работе с платформой AI Офис</p>
+          <p className="text-sm text-[#64748B] mt-1">Инструкции по работе с платформой Mindcod</p>
         </div>
 
         <div className="flex flex-col gap-3">

@@ -166,7 +166,7 @@ export function DashboardPage() {
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-[#1E293B]">Добро пожаловать в AI Офис</h1>
+            <h1 className="text-xl md:text-2xl font-bold text-[#1E293B]">Добро пожаловать в Mindcod</h1>
             <p className="text-sm text-[#64748B] mt-1">Выберите отдел для работы с AI-ассистентом</p>
           </div>
           {user?.role === "admin" && (
