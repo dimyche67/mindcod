@@ -21,8 +21,7 @@ const app = express();
 const PORT = process.env.PORT || 8787;
 
 if (!process.env.OPENROUTER_API_KEY) {
-  console.error("В файле backend/.env не найден OPENROUTER_API_KEY");
-  process.exit(1);
+  console.warn("⚠️  OPENROUTER_API_KEY не задан — чат работать не будет");
 }
 
 // ── CORS ─────────────────────────────────────────────────────────────────────

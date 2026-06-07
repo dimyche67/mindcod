@@ -8,10 +8,12 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY package*.json ./
+# Copy backend package files first for layer caching
+COPY backend/package*.json ./
 RUN npm ci
 
-COPY . .
+# Copy backend source
+COPY backend/ ./
 
 EXPOSE 8787
 
