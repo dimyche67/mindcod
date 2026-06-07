@@ -141,8 +141,9 @@ router.get("/leads/:id", (req, res) => {
   const comments = db.prepare("SELECT * FROM crm_comments WHERE lead_id = ? ORDER BY created_at ASC").all(req.params.id);
   const tasks = db.prepare("SELECT * FROM crm_tasks WHERE lead_id = ? ORDER BY created_at ASC").all(req.params.id);
   const history = db.prepare("SELECT * FROM crm_history WHERE lead_id = ? ORDER BY created_at DESC").all(req.params.id);
+  const files = db.prepare("SELECT id, name, size, mime_type, uploader_name, created_at FROM crm_lead_files WHERE lead_id = ? ORDER BY created_at DESC").all(req.params.id);
 
-  res.json({ ok: true, lead: withAssignee, comments, tasks, history });
+  res.json({ ok: true, lead: withAssignee, comments, tasks, history, files });
 });
 
 // PATCH /api/crm/leads/:id
@@ -366,6 +367,46 @@ router.delete("/fields/:id", (req, res) => {
 router.get("/members", (req, res) => {
   const members = db.prepare("SELECT id, name, email, role FROM users WHERE company_id = ? ORDER BY name ASC").all(req.user.companyId);
   res.json({ ok: true, members });
+});
+
+// ── Lead Files ────────────────────────────────────────────────────────────────
+router.get("/leads/:id/files", (req, res) => {
+  const lead = db.prepare("SELECT id FROM crm_leads WHERE id = ? AND company_id = ?").get(req.params.id, req.user.companyId);
+  if (!lead) return res.status(404).json({ ok: false, error: "Заявка не найдена" });
+  const files = db.prepare("SELECT id, name, size, mime_type, uploader_name, created_at FROM crm_lead_files WHERE lead_id = ? ORDER BY created_at DESC").all(req.params.id);
+  res.json({ ok: true, files });
+});
+
+router.post("/leads/:id/files", (req, res) => {
+  const lead = db.prepare("SELECT id FROM crm_leads WHERE id = ? AND company_id = ?").get(req.params.id, req.user.companyId);
+  if (!lead) return res.status(404).json({ ok: false, error: "Заявка не найдена" });
+  const { name, size, mime_type, data } = req.body ?? {};
+  if (!name || !data) return res.status(400).json({ ok: false, error: "name и data обязательны" });
+  const id = randomUUID();
+  db.prepare("INSERT INTO crm_lead_files (id, lead_id, company_id, name, size, mime_type, data, uploaded_by, uploader_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(id, req.params.id, req.user.companyId, name, size ?? 0, mime_type ?? "application/octet-stream", data, req.user.userId, req.user.name, now());
+  addHistory(req.params.id, req.user.userId, req.user.name, "Загружен файл", name);
+  const file = db.prepare("SELECT id, name, size, mime_type, uploader_name, created_at FROM crm_lead_files WHERE id = ?").get(id);
+  res.status(201).json({ ok: true, file });
+});
+
+router.get("/leads/:id/files/:fileId/download", (req, res) => {
+  const file = db.prepare("SELECT f.* FROM crm_lead_files f JOIN crm_leads l ON l.id = f.lead_id WHERE f.id = ? AND l.company_id = ?")
+    .get(req.params.fileId, req.user.companyId);
+  if (!file) return res.status(404).json({ ok: false, error: "Файл не найден" });
+  const buf = Buffer.from(file.data, "base64");
+  res.setHeader("Content-Type", file.mime_type);
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.name)}"`);
+  res.send(buf);
+});
+
+router.delete("/leads/:id/files/:fileId", (req, res) => {
+  const file = db.prepare("SELECT f.id, f.name FROM crm_lead_files f JOIN crm_leads l ON l.id = f.lead_id WHERE f.id = ? AND l.company_id = ?")
+    .get(req.params.fileId, req.user.companyId);
+  if (!file) return res.status(404).json({ ok: false, error: "Файл не найден" });
+  db.prepare("DELETE FROM crm_lead_files WHERE id = ?").run(req.params.fileId);
+  addHistory(req.params.id, req.user.userId, req.user.name, "Удалён файл", file.name);
+  res.json({ ok: true });
 });
 
 // ── Bulk actions ──────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import type { AuthUser, Department, ChatSummary, ChatMessage, Artifact, DeptFile, TeamMember, CrmLead, CrmComment, CrmTask, CrmHistoryEntry, CrmStatus, CrmTag, CrmColumn, CrmField, CrmMember, AdminCompany, AdminStats, CrmIntegration, IntegrationField, CrmNotification } from "../types";
+import type { AuthUser, Department, ChatSummary, ChatMessage, Artifact, DeptFile, TeamMember, CrmLead, CrmComment, CrmTask, CrmHistoryEntry, CrmStatus, CrmTag, CrmColumn, CrmField, CrmMember, AdminCompany, AdminStats, CrmIntegration, IntegrationField, CrmNotification, CrmLeadFile } from "../types";
 
 // В dev: vite proxy перенаправит /api → localhost:8787 (см. vite.config.ts)
 // В production (nginx): /api → localhost:8787 через proxy_pass
@@ -174,7 +174,35 @@ export async function apiCreateLead(data: LeadCreateData) {
 }
 
 export async function apiGetLead(id: string) {
-  return req<{ lead: CrmLead; comments: CrmComment[]; tasks: CrmTask[]; history: CrmHistoryEntry[] }>(`/api/crm/leads/${id}`);
+  return req<{ lead: CrmLead; comments: CrmComment[]; tasks: CrmTask[]; history: CrmHistoryEntry[]; files: CrmLeadFile[] }>(`/api/crm/leads/${id}`);
+}
+
+export async function apiGetLeadFiles(leadId: string) {
+  return req<{ files: CrmLeadFile[] }>(`/api/crm/leads/${leadId}/files`);
+}
+export async function apiUploadLeadFile(leadId: string, file: File): Promise<{ ok: boolean; file: CrmLeadFile }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64 = (reader.result as string).split(",")[1];
+        const res = await req<{ ok: boolean; file: CrmLeadFile }>(`/api/crm/leads/${leadId}/files`, {
+          method: "POST",
+          body: JSON.stringify({ name: file.name, size: file.size, mime_type: file.type, data: base64 }),
+        });
+        resolve(res);
+      } catch (e) { reject(e); }
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+export async function apiDeleteLeadFile(leadId: string, fileId: string) {
+  return req<{ ok: boolean }>(`/api/crm/leads/${leadId}/files/${fileId}`, { method: "DELETE" });
+}
+export function apiLeadFileDownloadUrl(leadId: string, fileId: string) {
+  const token = localStorage.getItem("aioffice_token");
+  return `/api/crm/leads/${leadId}/files/${fileId}/download?token=${token}`;
 }
 
 export async function apiUpdateLead(id: string, data: Partial<LeadCreateData & { status: CrmStatus; assigned_to: string }>) {

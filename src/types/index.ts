@@ -145,6 +145,15 @@ export type CrmTask = {
   created_at: string;
 };
 
+export type CrmLeadFile = {
+  id: string;
+  name: string;
+  size: number;
+  mime_type: string;
+  uploader_name: string | null;
+  created_at: string;
+};
+
 export type CrmNotification = {
   id: string;
   company_id: string;

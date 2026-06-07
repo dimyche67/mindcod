@@ -4,10 +4,12 @@ const JWT_SECRET = process.env.JWT_SECRET || "aioffice-dev-secret";
 
 export function authMiddleware(req, res, next) {
   const header = req.headers.authorization;
-  if (!header || !header.startsWith("Bearer ")) {
+  // Allow token via query string for file downloads
+  const queryToken = req.query?.token;
+  if (!header && !queryToken) {
     return res.status(401).json({ ok: false, error: "Требуется авторизация" });
   }
-  const token = header.slice(7);
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : queryToken;
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     req.user = { ...payload, isSuperadmin: !!payload.isSuperadmin };
