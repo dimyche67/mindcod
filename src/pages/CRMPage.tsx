@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "../components/AppLayout";
-import type { CrmLead, CrmStatus, CrmTag, CrmColumn, CrmField, CrmMember, CrmNotification } from "../types";
+import type { CrmLead, CrmStatus, CrmTag, CrmColumn, CrmField, CrmMember, CrmNotification, CrmSource } from "../types";
 import {
   apiGetLeads, apiCreateLead, apiUpdateLead, apiDeleteLead,
   apiGetTags, apiCreateTag, apiUpdateTag, apiDeleteTag, apiAddLeadTag, apiRemoveLeadTag,
@@ -9,6 +9,7 @@ import {
   apiGetCrmFields, apiCreateCrmField, apiDeleteCrmField,
   apiGetCrmMembers, apiBulkLeads, apiGetAnalytics, type CrmAnalytics,
   apiGetNotifications, apiMarkAllNotificationsRead, apiMarkNotificationRead,
+  apiGetSources, apiCreateSource, apiUpdateSource, apiDeleteSource,
 } from "../api";
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -21,7 +22,7 @@ const DEFAULT_COLUMNS = [
 ];
 
 const TAG_COLORS = ["#6366F1","#EC4899","#EF4444","#F59E0B","#10B981","#3B82F6","#8B5CF6","#14B8A6"];
-const SOURCE_LABELS: Record<string, string> = { manual: "Вручную", website: "Сайт", other: "Другое" };
+const DEFAULT_SOURCE_LABELS: Record<string, string> = { manual: "Вручную", website: "Сайт", other: "Другое" };
 const SORT_KEYS = ["created_at","name","profit","status"] as const;
 type SortKey = typeof SORT_KEYS[number];
 
@@ -35,13 +36,14 @@ function fmtMoney(n?: number | null) {
 // ── Settings Modal ────────────────────────────────────────────────────────────
 
 function SettingsModal({
-  tags, columns, fields,
+  tags, columns, fields, sources,
   onClose,
   onTagCreate, onTagUpdate, onTagDelete,
   onColCreate, onColDelete,
   onFieldCreate, onFieldDelete,
+  onSourceCreate, onSourceUpdate, onSourceDelete,
 }: {
-  tags: CrmTag[]; columns: CrmColumn[]; fields: CrmField[];
+  tags: CrmTag[]; columns: CrmColumn[]; fields: CrmField[]; sources: CrmSource[];
   onClose: () => void;
   onTagCreate: (name: string, color: string) => Promise<void>;
   onTagUpdate: (id: string, name: string, color: string) => Promise<void>;
@@ -50,11 +52,15 @@ function SettingsModal({
   onColDelete: (id: string) => Promise<void>;
   onFieldCreate: (name: string, type: string) => Promise<void>;
   onFieldDelete: (id: string) => Promise<void>;
+  onSourceCreate: (name: string) => Promise<void>;
+  onSourceUpdate: (id: string, name: string) => Promise<void>;
+  onSourceDelete: (id: string) => Promise<void>;
 }) {
-  const [tab, setTab] = useState<"tags" | "columns" | "fields">("tags");
+  const [tab, setTab] = useState<"tags" | "columns" | "fields" | "sources">("tags");
   const [tagName, setTagName] = useState(""); const [tagColor, setTagColor] = useState(TAG_COLORS[0]);
   const [colName, setColName] = useState(""); const [colColor, setColColor] = useState(TAG_COLORS[2]);
   const [fieldName, setFieldName] = useState(""); const [fieldType, setFieldType] = useState("text");
+  const [sourceName, setSourceName] = useState(""); const [editSource, setEditSource] = useState<CrmSource | null>(null);
   const [editTag, setEditTag] = useState<CrmTag | null>(null);
 
   return (
@@ -66,9 +72,9 @@ function SettingsModal({
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 px-5 pt-4 border-b border-[#E2E8F0] pb-0">
-          {(["tags","columns","fields"] as const).map((t) => {
-            const ls = { tags: "🏷️ Теги", columns: "📋 Колонки", fields: "🗂️ Поля" };
+        <div className="flex gap-1 px-5 pt-4 border-b border-[#E2E8F0] pb-0 flex-wrap">
+          {(["tags","columns","fields","sources"] as const).map((t) => {
+            const ls = { tags: "🏷️ Теги", columns: "📋 Колонки", fields: "🗂️ Поля", sources: "📥 Источники" };
             return (
               <button key={t} onClick={() => setTab(t)}
                 className={`px-4 py-2 text-sm font-medium cursor-pointer border-b-2 -mb-px transition-colors ${tab === t ? "border-[#2563EB] text-[#2563EB]" : "border-transparent text-[#64748B] hover:text-[#1E293B]"}`}>
@@ -200,6 +206,51 @@ function SettingsModal({
               </div>
             </>
           )}
+
+          {/* Sources */}
+          {tab === "sources" && (
+            <>
+              <div className="flex flex-col gap-2">
+                {sources.filter((s) => s.is_default).map((s) => (
+                  <div key={s.id} className="flex items-center gap-2">
+                    <span className="flex-1 text-sm text-[#64748B]">{s.name}</span>
+                    <span className="text-xs text-[#CBD5E1]">системный</span>
+                  </div>
+                ))}
+                {sources.filter((s) => !s.is_default).length > 0 && (
+                  <>
+                    <p className="text-xs font-medium text-[#94A3B8] uppercase tracking-wide mt-2">Кастомные</p>
+                    {sources.filter((s) => !s.is_default).map((s) => (
+                      <div key={s.id} className="flex items-center gap-2 group">
+                        {editSource?.id === s.id ? (
+                          <>
+                            <input value={editSource.name} onChange={(e) => setEditSource({ ...editSource, name: e.target.value })}
+                              className="flex-1 border border-[#E2E8F0] rounded px-2 py-1 text-sm focus:outline-none" />
+                            <button onClick={() => { onSourceUpdate(s.id, editSource.name); setEditSource(null); }}
+                              className="text-xs bg-[#2563EB] text-white px-2 py-1 rounded cursor-pointer">✓</button>
+                            <button onClick={() => setEditSource(null)} className="text-xs text-[#94A3B8] cursor-pointer">✕</button>
+                          </>
+                        ) : (
+                          <>
+                            <span className="flex-1 text-sm text-[#1E293B]">{s.name}</span>
+                            <button onClick={() => setEditSource(s)} className="opacity-0 group-hover:opacity-100 text-xs text-[#64748B] hover:text-[#2563EB] cursor-pointer">✏️</button>
+                            <button onClick={() => onSourceDelete(s.id)} className="opacity-0 group-hover:opacity-100 text-xs text-[#94A3B8] hover:text-red-500 cursor-pointer">🗑️</button>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+              <div className="flex gap-2 pt-3 border-t border-[#F1F5F9]">
+                <input value={sourceName} onChange={(e) => setSourceName(e.target.value)} placeholder="Новый источник…"
+                  className="flex-1 border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#2563EB]" />
+                <button onClick={() => { if (sourceName.trim()) { onSourceCreate(sourceName.trim()); setSourceName(""); } }}
+                  disabled={!sourceName.trim()}
+                  className="bg-[#2563EB] text-white text-sm px-3 py-2 rounded-lg cursor-pointer hover:bg-[#1D4ED8] disabled:opacity-40">+</button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -218,6 +269,7 @@ export function CRMPage() {
   const [customColumns, setCustomColumns] = useState<CrmColumn[]>([]);
   const [fields, setFields] = useState<CrmField[]>([]);
   const [members, setMembers] = useState<CrmMember[]>([]);
+  const [sources, setSources] = useState<CrmSource[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [view, setView] = useState<"kanban" | "list">(() =>
@@ -263,14 +315,15 @@ export function CRMPage() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [leadsRes, tagsRes, colsRes, fieldsRes, membersRes] = await Promise.all([
-        apiGetLeads(), apiGetTags(), apiGetCrmColumns(), apiGetCrmFields(), apiGetCrmMembers(),
+      const [leadsRes, tagsRes, colsRes, fieldsRes, membersRes, sourcesRes] = await Promise.all([
+        apiGetLeads(), apiGetTags(), apiGetCrmColumns(), apiGetCrmFields(), apiGetCrmMembers(), apiGetSources(),
       ]);
       setLeads(leadsRes.leads);
       setTags(tagsRes.tags);
       setCustomColumns(colsRes.columns);
       setFields(fieldsRes.fields);
       setMembers(membersRes.members);
+      setSources(sourcesRes.sources);
     } catch { /* ignore */ }
     finally { setLoading(false); }
   }
@@ -446,6 +499,23 @@ export function CRMPage() {
     setFields((p) => p.filter((f) => f.id !== id));
   }, []);
 
+  const handleSourceCreate = useCallback(async (name: string) => {
+    const res = await apiCreateSource(name);
+    setSources((p) => [...p, res.source]);
+  }, []);
+
+  const handleSourceUpdate = useCallback(async (id: string, name: string) => {
+    const res = await apiUpdateSource(id, name);
+    setSources((p) => p.map((s) => s.id === id ? res.source : s));
+  }, []);
+
+  const handleSourceDelete = useCallback(async (id: string) => {
+    await apiDeleteSource(id);
+    setSources((p) => p.filter((s) => s.id !== id));
+  }, []);
+
+  const sourceLabel = (src: string) => sources.find((s) => s.id === src)?.name ?? DEFAULT_SOURCE_LABELS[src] ?? src;
+
   // ── Column header style ────────────────────────────────────────────────────
   function colBorderStyle(col: typeof allColumns[0]) {
     if (col.borderClass) return {};
@@ -556,9 +626,7 @@ export function CRMPage() {
             <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)}
               className="border border-[#E2E8F0] rounded-lg px-2 py-1.5 text-sm focus:outline-none cursor-pointer bg-white">
               <option value="">Все источники</option>
-              <option value="manual">Вручную</option>
-              <option value="website">Сайт</option>
-              <option value="other">Другое</option>
+              {sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
             <div className="flex items-center gap-1.5 text-sm text-[#64748B]">
               <span>С</span>
@@ -610,7 +678,7 @@ export function CRMPage() {
                         <div className="text-xs text-[#CBD5E1] text-center py-6 select-none">Перетащите заявку сюда</div>
                       )}
                       {colLeads.map((lead) => (
-                        <KanbanCard key={lead.id} lead={lead} tags={tags}
+                        <KanbanCard key={lead.id} lead={lead} tags={tags} sourceLabel={sourceLabel}
                           onDragStart={() => { draggingId.current = lead.id; }}
                           onDelete={() => handleDelete(lead.id)}
                           onTagToggle={async (tagId, has) => {
@@ -711,7 +779,7 @@ export function CRMPage() {
                         <td className="px-4 py-3 font-medium text-sm text-[#1E293B]" onClick={() => navigate(`/crm/${lead.id}`)}>{lead.name}</td>
                         <td className="px-4 py-3 text-sm text-[#64748B]" onClick={() => navigate(`/crm/${lead.id}`)}>{lead.phone ?? "—"}</td>
                         <td className="px-4 py-3 text-sm text-[#64748B]" onClick={() => navigate(`/crm/${lead.id}`)}>{lead.email ?? "—"}</td>
-                        <td className="px-4 py-3 text-sm text-[#64748B]" onClick={() => navigate(`/crm/${lead.id}`)}>{SOURCE_LABELS[lead.source] ?? lead.source}</td>
+                        <td className="px-4 py-3 text-sm text-[#64748B]" onClick={() => navigate(`/crm/${lead.id}`)}>{sourceLabel(lead.source)}</td>
                         <td className="px-4 py-3" onClick={() => navigate(`/crm/${lead.id}`)}>
                           <span className="text-xs font-medium px-2 py-0.5 rounded-full"
                             style={{ background: (colDef?.color ?? "#6366F1") + "20", color: colDef?.color ?? "#6366F1" }}>
@@ -784,9 +852,7 @@ export function CRMPage() {
                   <label className="text-sm font-medium text-[#1E293B]">Источник</label>
                   <select value={form.source} onChange={(e) => setForm((p) => ({ ...p, source: e.target.value }))}
                     className="border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]">
-                    <option value="manual">Вручную</option>
-                    <option value="website">Сайт</option>
-                    <option value="other">Другое</option>
+                    {sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -810,11 +876,12 @@ export function CRMPage() {
       {/* Settings modal */}
       {showSettings && (
         <SettingsModal
-          tags={tags} columns={customColumns} fields={fields}
+          tags={tags} columns={customColumns} fields={fields} sources={sources}
           onClose={() => setShowSettings(false)}
           onTagCreate={handleTagCreate} onTagUpdate={handleTagUpdate} onTagDelete={handleTagDelete}
           onColCreate={handleColCreate} onColDelete={handleColDelete}
           onFieldCreate={handleFieldCreate} onFieldDelete={handleFieldDelete}
+          onSourceCreate={handleSourceCreate} onSourceUpdate={handleSourceUpdate} onSourceDelete={handleSourceDelete}
         />
       )}
 
@@ -881,7 +948,7 @@ export function CRMPage() {
                     {analytics.bySource.map((s) => (
                       <div key={s.source} className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-4 py-3 text-center">
                         <p className="text-xl font-bold text-[#1E293B]">{s.count}</p>
-                        <p className="text-xs text-[#64748B] mt-0.5">{SOURCE_LABELS[s.source] ?? s.source}</p>
+                        <p className="text-xs text-[#64748B] mt-0.5">{sourceLabel(s.source)}</p>
                       </div>
                     ))}
                   </div>
@@ -902,8 +969,8 @@ export function CRMPage() {
 
 // ── Kanban card ───────────────────────────────────────────────────────────────
 
-function KanbanCard({ lead, tags, onDragStart, onDelete, onTagToggle }: {
-  lead: CrmLead; tags: CrmTag[];
+function KanbanCard({ lead, tags, sourceLabel, onDragStart, onDelete, onTagToggle }: {
+  lead: CrmLead; tags: CrmTag[]; sourceLabel: (src: string) => string;
   onDragStart: () => void; onDelete: () => void;
   onTagToggle: (tagId: string, hasTag: boolean) => void;
 }) {
@@ -944,7 +1011,7 @@ function KanbanCard({ lead, tags, onDragStart, onDelete, onTagToggle }: {
       )}
 
       <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-[#E2E8F0]">
-        <span className="text-[10px] text-[#94A3B8]">{SOURCE_LABELS[lead.source] ?? lead.source}</span>
+        <span className="text-[10px] text-[#94A3B8]">{sourceLabel(lead.source)}</span>
         <div className="flex items-center gap-2">
           {tags.length > 0 && (
             <div className="relative">

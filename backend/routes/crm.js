@@ -363,6 +363,43 @@ router.delete("/fields/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Sources ───────────────────────────────────────────────────────────────────
+const DEFAULT_SOURCES = [
+  { id: "manual",  name: "Вручную", is_default: 1 },
+  { id: "website", name: "Сайт",    is_default: 1 },
+  { id: "other",   name: "Другое",  is_default: 1 },
+];
+
+router.get("/sources", (req, res) => {
+  const custom = db.prepare("SELECT * FROM crm_sources WHERE company_id = ? ORDER BY position ASC").all(req.user.companyId);
+  res.json({ ok: true, sources: [...DEFAULT_SOURCES, ...custom] });
+});
+
+router.post("/sources", (req, res) => {
+  const { name } = req.body ?? {};
+  if (!name?.trim()) return res.status(400).json({ ok: false, error: "Название обязательно" });
+  const maxPos = db.prepare("SELECT MAX(position) as m FROM crm_sources WHERE company_id = ?").get(req.user.companyId);
+  const id = randomUUID();
+  db.prepare("INSERT INTO crm_sources (id, company_id, name, is_default, position, created_at) VALUES (?, ?, ?, 0, ?, ?)")
+    .run(id, req.user.companyId, name.trim(), (maxPos?.m ?? 0) + 1, now());
+  res.status(201).json({ ok: true, source: db.prepare("SELECT * FROM crm_sources WHERE id = ?").get(id) });
+});
+
+router.patch("/sources/:id", (req, res) => {
+  const src = db.prepare("SELECT id FROM crm_sources WHERE id = ? AND company_id = ?").get(req.params.id, req.user.companyId);
+  if (!src) return res.status(404).json({ ok: false, error: "Источник не найден" });
+  const { name } = req.body ?? {};
+  db.prepare("UPDATE crm_sources SET name = COALESCE(?, name) WHERE id = ?").run(name?.trim() ?? null, req.params.id);
+  res.json({ ok: true, source: db.prepare("SELECT * FROM crm_sources WHERE id = ?").get(req.params.id) });
+});
+
+router.delete("/sources/:id", (req, res) => {
+  const src = db.prepare("SELECT id FROM crm_sources WHERE id = ? AND company_id = ?").get(req.params.id, req.user.companyId);
+  if (!src) return res.status(404).json({ ok: false, error: "Источник не найден" });
+  db.prepare("DELETE FROM crm_sources WHERE id = ?").run(req.params.id);
+  res.json({ ok: true });
+});
+
 // ── Team members (for assignee dropdown) ─────────────────────────────────────
 router.get("/members", (req, res) => {
   const members = db.prepare("SELECT id, name, email, role FROM users WHERE company_id = ? ORDER BY name ASC").all(req.user.companyId);

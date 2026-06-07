@@ -145,6 +145,8 @@ export type CrmTask = {
   created_at: string;
 };
 
+export type CrmSource = { id: string; name: string; is_default: number };
+
 export type CrmLeadFile = {
   id: string;
   name: string;

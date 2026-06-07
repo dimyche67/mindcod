@@ -1,4 +1,4 @@
-import type { AuthUser, Department, ChatSummary, ChatMessage, Artifact, DeptFile, TeamMember, CrmLead, CrmComment, CrmTask, CrmHistoryEntry, CrmStatus, CrmTag, CrmColumn, CrmField, CrmMember, AdminCompany, AdminStats, CrmIntegration, IntegrationField, CrmNotification, CrmLeadFile } from "../types";
+import type { AuthUser, Department, ChatSummary, ChatMessage, Artifact, DeptFile, TeamMember, CrmLead, CrmComment, CrmTask, CrmHistoryEntry, CrmStatus, CrmTag, CrmColumn, CrmField, CrmMember, AdminCompany, AdminStats, CrmIntegration, IntegrationField, CrmNotification, CrmLeadFile, CrmSource } from "../types";
 
 // В dev: vite proxy перенаправит /api → localhost:8787 (см. vite.config.ts)
 // В production (nginx): /api → localhost:8787 через proxy_pass
@@ -273,6 +273,20 @@ export async function apiCreateCrmField(name: string, field_type: string) {
 }
 export async function apiDeleteCrmField(id: string) {
   return req<Record<string, never>>(`/api/crm/fields/${id}`, { method: "DELETE" });
+}
+
+// ── CRM Sources ───────────────────────────────────────────────────────────────
+export async function apiGetSources() {
+  return req<{ sources: CrmSource[] }>("/api/crm/sources");
+}
+export async function apiCreateSource(name: string) {
+  return req<{ source: CrmSource }>("/api/crm/sources", { method: "POST", body: JSON.stringify({ name }) });
+}
+export async function apiUpdateSource(id: string, name: string) {
+  return req<{ source: CrmSource }>(`/api/crm/sources/${id}`, { method: "PATCH", body: JSON.stringify({ name }) });
+}
+export async function apiDeleteSource(id: string) {
+  return req<{ ok: boolean }>(`/api/crm/sources/${id}`, { method: "DELETE" });
 }
 
 // ── CRM Members ───────────────────────────────────────────────────────────────

@@ -158,6 +158,15 @@ db.exec(`
     position INTEGER DEFAULT 0
   );
 
+  CREATE TABLE IF NOT EXISTS crm_sources (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    is_default INTEGER DEFAULT 0,
+    position INTEGER DEFAULT 0,
+    created_at TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS crm_lead_files (
     id TEXT PRIMARY KEY,
     lead_id TEXT NOT NULL,
