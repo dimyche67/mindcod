@@ -158,6 +158,18 @@ db.exec(`
     position INTEGER DEFAULT 0
   );
 
+  CREATE TABLE IF NOT EXISTS crm_notifications (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    lead_id TEXT,
+    lead_name TEXT,
+    message TEXT NOT NULL,
+    read INTEGER DEFAULT 0,
+    created_at TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS crm_integrations (
     id TEXT PRIMARY KEY,
     company_id TEXT NOT NULL,
@@ -176,6 +188,8 @@ const migrations = [
   "ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'active'",
   "ALTER TABLE users ADD COLUMN is_superadmin INTEGER DEFAULT 0",
   "ALTER TABLE users ADD COLUMN company_id TEXT",
+  "ALTER TABLE crm_tasks ADD COLUMN due_date TEXT",
+  "ALTER TABLE crm_tasks ADD COLUMN priority TEXT DEFAULT 'normal'",
 ];
 for (const sql of migrations) {
   try { db.prepare(sql).run(); } catch { /* already exists */ }

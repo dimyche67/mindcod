@@ -1,4 +1,4 @@
-import type { AuthUser, Department, ChatSummary, ChatMessage, Artifact, DeptFile, TeamMember, CrmLead, CrmComment, CrmTask, CrmHistoryEntry, CrmStatus, CrmTag, CrmColumn, CrmField, CrmMember, AdminCompany, AdminStats, CrmIntegration, IntegrationField } from "../types";
+import type { AuthUser, Department, ChatSummary, ChatMessage, Artifact, DeptFile, TeamMember, CrmLead, CrmComment, CrmTask, CrmHistoryEntry, CrmStatus, CrmTag, CrmColumn, CrmField, CrmMember, AdminCompany, AdminStats, CrmIntegration, IntegrationField, CrmNotification } from "../types";
 
 // В dev: vite proxy перенаправит /api → localhost:8787 (см. vite.config.ts)
 // В production (nginx): /api → localhost:8787 через proxy_pass
@@ -158,10 +158,13 @@ export async function apiDeleteFile(id: string) {
 
 export type LeadCreateData = { name: string; phone?: string; email?: string; source?: string; custom_fields?: Record<string, string> };
 
-export async function apiGetLeads(params?: { status?: CrmStatus; search?: string }) {
+export async function apiGetLeads(params?: { status?: CrmStatus; search?: string; source?: string; date_from?: string; date_to?: string }) {
   const q = new URLSearchParams();
   if (params?.status) q.set("status", params.status);
   if (params?.search) q.set("search", params.search);
+  if (params?.source) q.set("source", params.source);
+  if (params?.date_from) q.set("date_from", params.date_from);
+  if (params?.date_to) q.set("date_to", params.date_to);
   const qs = q.toString() ? `?${q}` : "";
   return req<{ leads: CrmLead[] }>(`/api/crm/leads${qs}`);
 }
@@ -190,11 +193,11 @@ export async function apiDeleteComment(leadId: string, commentId: string) {
   return req<Record<string, never>>(`/api/crm/leads/${leadId}/comments/${commentId}`, { method: "DELETE" });
 }
 
-export async function apiCreateTask(leadId: string, title: string) {
-  return req<{ task: CrmTask }>(`/api/crm/leads/${leadId}/tasks`, { method: "POST", body: JSON.stringify({ title }) });
+export async function apiCreateTask(leadId: string, data: { title: string; due_date?: string | null; priority?: string }) {
+  return req<{ task: CrmTask }>(`/api/crm/leads/${leadId}/tasks`, { method: "POST", body: JSON.stringify(data) });
 }
 
-export async function apiUpdateTask(leadId: string, taskId: string, data: { done?: boolean; title?: string }) {
+export async function apiUpdateTask(leadId: string, taskId: string, data: { done?: boolean; title?: string; due_date?: string | null; priority?: string }) {
   return req<{ task: CrmTask }>(`/api/crm/leads/${leadId}/tasks/${taskId}`, { method: "PATCH", body: JSON.stringify(data) });
 }
 
@@ -247,6 +250,37 @@ export async function apiDeleteCrmField(id: string) {
 // ── CRM Members ───────────────────────────────────────────────────────────────
 export async function apiGetCrmMembers() {
   return req<{ members: CrmMember[] }>("/api/crm/members");
+}
+
+// ── CRM Bulk ──────────────────────────────────────────────────────────────────
+export async function apiBulkLeads(action: "status" | "assign" | "delete", ids: string[], value?: string) {
+  return req<{ ok: boolean; affected: number }>("/api/crm/leads/bulk", { method: "POST", body: JSON.stringify({ action, ids, value }) });
+}
+
+// ── CRM Analytics ─────────────────────────────────────────────────────────────
+export type CrmAnalytics = {
+  byStatus: { status: string; count: number; profit: number | null }[];
+  bySource: { source: string; count: number }[];
+  total: { count: number; profit: number | null };
+  overdueTasks: number;
+};
+export async function apiGetAnalytics(params?: { date_from?: string; date_to?: string }) {
+  const q = new URLSearchParams();
+  if (params?.date_from) q.set("date_from", params.date_from);
+  if (params?.date_to) q.set("date_to", params.date_to);
+  const qs = q.toString() ? `?${q}` : "";
+  return req<{ ok: boolean } & CrmAnalytics>(`/api/crm/analytics${qs}`);
+}
+
+// ── CRM Notifications ─────────────────────────────────────────────────────────
+export async function apiGetNotifications() {
+  return req<{ notifications: CrmNotification[] }>("/api/crm/notifications");
+}
+export async function apiMarkAllNotificationsRead() {
+  return req<{ ok: boolean }>("/api/crm/notifications/read-all", { method: "PATCH" });
+}
+export async function apiMarkNotificationRead(id: string) {
+  return req<{ ok: boolean }>(`/api/crm/notifications/${id}/read`, { method: "PATCH" });
 }
 
 // ── Admin ─────────────────────────────────────────────────────────────────────

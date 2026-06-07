@@ -139,7 +139,21 @@ export type CrmTask = {
   lead_id: string;
   title: string;
   done: number;
+  due_date?: string | null;
+  priority?: "low" | "normal" | "high";
   created_by: string | null;
+  created_at: string;
+};
+
+export type CrmNotification = {
+  id: string;
+  company_id: string;
+  user_id: string;
+  type: string;
+  lead_id: string | null;
+  lead_name: string | null;
+  message: string;
+  read: number;
   created_at: string;
 };
 

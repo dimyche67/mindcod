@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "../components/AppLayout";
-import type { CrmLead, CrmStatus, CrmTag, CrmColumn, CrmField, CrmMember } from "../types";
+import type { CrmLead, CrmStatus, CrmTag, CrmColumn, CrmField, CrmMember, CrmNotification } from "../types";
 import {
   apiGetLeads, apiCreateLead, apiUpdateLead, apiDeleteLead,
   apiGetTags, apiCreateTag, apiUpdateTag, apiDeleteTag, apiAddLeadTag, apiRemoveLeadTag,
   apiGetCrmColumns, apiCreateCrmColumn, apiDeleteCrmColumn,
   apiGetCrmFields, apiCreateCrmField, apiDeleteCrmField,
-  apiGetCrmMembers,
+  apiGetCrmMembers, apiBulkLeads, apiGetAnalytics, type CrmAnalytics,
+  apiGetNotifications, apiMarkAllNotificationsRead, apiMarkNotificationRead,
 } from "../api";
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -224,11 +225,27 @@ export function CRMPage() {
   );
   const [search, setSearch] = useState("");
   const [filterAssigned, setFilterAssigned] = useState("");
+  const [filterSource, setFilterSource] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [analytics, setAnalytics] = useState<CrmAnalytics | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [notifications, setNotifications] = useState<CrmNotification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [form, setForm] = useState<CreateForm>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [duplicateWarning, setDuplicateWarning] = useState<{ id: string; name: string } | null>(null);
+
+  // bulk selection (list view)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState("");
+  const [bulkValue, setBulkValue] = useState("");
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   // list sort
   const [sortKey, setSortKey] = useState<SortKey>("created_at");
@@ -240,6 +257,7 @@ export function CRMPage() {
 
   useEffect(() => {
     loadAll();
+    apiGetNotifications().then((r) => setNotifications(r.notifications)).catch(() => {});
   }, []);
 
   async function loadAll() {
@@ -255,6 +273,26 @@ export function CRMPage() {
       setMembers(membersRes.members);
     } catch { /* ignore */ }
     finally { setLoading(false); }
+  }
+
+  async function openAnalytics() {
+    setShowAnalytics(true);
+    setAnalyticsLoading(true);
+    try {
+      const res = await apiGetAnalytics();
+      setAnalytics(res);
+    } catch { /* ignore */ }
+    finally { setAnalyticsLoading(false); }
+  }
+
+  async function markAllRead() {
+    await apiMarkAllNotificationsRead();
+    setNotifications((p) => p.map((n) => ({ ...n, read: 1 })));
+  }
+
+  async function markRead(id: string) {
+    await apiMarkNotificationRead(id);
+    setNotifications((p) => p.map((n) => n.id === id ? { ...n, read: 1 } : n));
   }
 
   function switchView(v: "kanban" | "list") {
@@ -274,6 +312,9 @@ export function CRMPage() {
 
   const filtered = leads.filter((l) => {
     if (filterAssigned && l.assigned_to !== filterAssigned) return false;
+    if (filterSource && l.source !== filterSource) return false;
+    if (filterDateFrom && l.created_at < filterDateFrom) return false;
+    if (filterDateTo && l.created_at > filterDateTo + "T23:59:59") return false;
     if (search.trim()) {
       const q = search.toLowerCase();
       return l.name.toLowerCase().includes(q) || l.phone?.includes(q) || l.email?.toLowerCase().includes(q);
@@ -312,19 +353,53 @@ export function CRMPage() {
   }
 
   // ── Create ─────────────────────────────────────────────────────────────────
-  async function handleCreate(e: React.FormEvent) {
+  async function handleCreate(e: React.FormEvent, force = false) {
     e.preventDefault();
     if (!form.name.trim()) { setError("Имя обязательно"); return; }
-    setError(""); setSubmitting(true);
+    setError(""); setSubmitting(true); setDuplicateWarning(null);
     try {
       const extra: Record<string, string> = {};
       if (form.extra.trim()) extra.note = form.extra.trim();
-      const res = await apiCreateLead({ name: form.name.trim(), phone: form.phone.trim() || undefined, email: form.email.trim() || undefined, source: form.source, custom_fields: extra });
+      const body = { name: form.name.trim(), phone: form.phone.trim() || undefined, email: form.email.trim() || undefined, source: form.source, custom_fields: extra, ...(force ? { force: true } : {}) };
+      const res = await apiCreateLead(body as Parameters<typeof apiCreateLead>[0]);
+      if ((res as Record<string, unknown>).duplicate) {
+        setDuplicateWarning((res as Record<string, unknown>).existing as { id: string; name: string });
+        setSubmitting(false);
+        return;
+      }
       setLeads((prev) => [res.lead, ...prev]);
       setShowCreate(false); setForm(EMPTY_FORM);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Ошибка");
     } finally { setSubmitting(false); }
+  }
+
+  // ── Bulk ───────────────────────────────────────────────────────────────────
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === sortedList.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(sortedList.map((l) => l.id)));
+  }
+
+  async function executeBulk() {
+    if (!bulkAction || selectedIds.size === 0) return;
+    if (bulkAction === "delete" && !confirm(`Удалить ${selectedIds.size} заявок?`)) return;
+    setBulkLoading(true);
+    try {
+      await apiBulkLeads(bulkAction as "status" | "assign" | "delete", [...selectedIds], bulkValue);
+      setSelectedIds(new Set());
+      setBulkAction("");
+      setBulkValue("");
+      await loadAll();
+    } catch { /* ignore */ }
+    finally { setBulkLoading(false); }
   }
 
   async function handleDelete(id: string) {
@@ -389,20 +464,62 @@ export function CRMPage() {
                 Прибыль: <strong className="text-green-600">{fmtMoney(totalProfit)}</strong>
               </span>
             )}
+            <span className="text-xs text-[#94A3B8]">{filtered.length} заявок</span>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск…"
               className="border border-[#E2E8F0] rounded-lg px-3 py-1.5 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
 
-            {/* Assignee filter */}
-            {members.length > 0 && (
-              <select value={filterAssigned} onChange={(e) => setFilterAssigned(e.target.value)}
-                className="border border-[#E2E8F0] rounded-lg px-2 py-1.5 text-sm focus:outline-none cursor-pointer bg-white">
-                <option value="">Все сотрудники</option>
-                {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            )}
+            {/* Extended filters toggle */}
+            <button onClick={() => setShowFilters((p) => !p)}
+              className={`border px-3 py-1.5 rounded-lg text-sm cursor-pointer transition-colors ${showFilters || filterSource || filterDateFrom || filterDateTo ? "border-[#2563EB] text-[#2563EB] bg-blue-50" : "border-[#E2E8F0] text-[#64748B] hover:bg-[#F8F9FA]"}`}
+              title="Фильтры">
+              Фильтры {(filterSource || filterDateFrom || filterDateTo) ? "●" : ""}
+            </button>
+
+            {/* Analytics */}
+            <button onClick={openAnalytics}
+              className="border border-[#E2E8F0] px-3 py-1.5 rounded-lg text-sm text-[#64748B] hover:bg-[#F8F9FA] cursor-pointer" title="Аналитика">
+              📊
+            </button>
+
+            {/* Notifications bell */}
+            <div className="relative">
+              <button onClick={() => setShowNotifications((p) => !p)}
+                className="relative border border-[#E2E8F0] px-3 py-1.5 rounded-lg text-sm text-[#64748B] hover:bg-[#F8F9FA] cursor-pointer">
+                🔔
+                {notifications.some((n) => !n.read) && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                    {notifications.filter((n) => !n.read).length}
+                  </span>
+                )}
+              </button>
+              {showNotifications && (
+                <div className="absolute right-0 top-9 w-80 bg-white border border-[#E2E8F0] rounded-xl shadow-xl z-30">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-[#F1F5F9]">
+                    <span className="font-semibold text-sm text-[#1E293B]">Уведомления</span>
+                    {notifications.some((n) => !n.read) && (
+                      <button onClick={markAllRead} className="text-xs text-[#2563EB] hover:underline cursor-pointer">Прочитать все</button>
+                    )}
+                  </div>
+                  <div className="max-h-72 overflow-y-auto">
+                    {notifications.length === 0 && <p className="text-sm text-[#94A3B8] text-center py-6">Нет уведомлений</p>}
+                    {notifications.map((n) => (
+                      <div key={n.id} onClick={() => { markRead(n.id); setShowNotifications(false); if (n.lead_id) navigate(`/crm/${n.lead_id}`); }}
+                        className={`flex gap-3 px-4 py-3 border-b border-[#F1F5F9] last:border-0 cursor-pointer hover:bg-[#F8FAFC] ${!n.read ? "bg-blue-50/50" : ""}`}>
+                        <span className="text-lg shrink-0">{n.type === "assigned" ? "👤" : "🔔"}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm ${!n.read ? "font-medium text-[#1E293B]" : "text-[#64748B]"}`}>{n.message}</p>
+                          <p className="text-xs text-[#94A3B8] mt-0.5">{new Date(n.created_at).toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</p>
+                        </div>
+                        {!n.read && <span className="w-2 h-2 rounded-full bg-[#2563EB] shrink-0 mt-1.5" />}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* View toggle */}
             <div className="flex border border-[#E2E8F0] rounded-lg overflow-hidden">
@@ -427,6 +544,36 @@ export function CRMPage() {
             </button>
           </div>
         </div>
+
+        {/* Extended filters panel */}
+        {showFilters && (
+          <div className="bg-[#F8FAFC] border-b border-[#E2E8F0] px-6 py-3 flex items-center gap-3 flex-wrap flex-shrink-0">
+            <select value={filterAssigned} onChange={(e) => setFilterAssigned(e.target.value)}
+              className="border border-[#E2E8F0] rounded-lg px-2 py-1.5 text-sm focus:outline-none cursor-pointer bg-white">
+              <option value="">Все сотрудники</option>
+              {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)}
+              className="border border-[#E2E8F0] rounded-lg px-2 py-1.5 text-sm focus:outline-none cursor-pointer bg-white">
+              <option value="">Все источники</option>
+              <option value="manual">Вручную</option>
+              <option value="website">Сайт</option>
+              <option value="other">Другое</option>
+            </select>
+            <div className="flex items-center gap-1.5 text-sm text-[#64748B]">
+              <span>С</span>
+              <input type="date" value={filterDateFrom} onChange={(e) => setFilterDateFrom(e.target.value)}
+                className="border border-[#E2E8F0] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#2563EB] cursor-pointer bg-white" />
+              <span>по</span>
+              <input type="date" value={filterDateTo} onChange={(e) => setFilterDateTo(e.target.value)}
+                className="border border-[#E2E8F0] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#2563EB] cursor-pointer bg-white" />
+            </div>
+            {(filterSource || filterDateFrom || filterDateTo || filterAssigned) && (
+              <button onClick={() => { setFilterSource(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterAssigned(""); }}
+                className="text-xs text-red-500 hover:underline cursor-pointer">Сбросить</button>
+            )}
+          </div>
+        )}
 
         {/* Content */}
         {loading ? (
@@ -484,11 +631,47 @@ export function CRMPage() {
           </div>
         ) : (
           // ── List view ──────────────────────────────────────────────────────
-          <div className="flex-1 overflow-auto p-6">
+          <div className="flex-1 overflow-auto p-6 flex flex-col gap-3">
+            {/* Bulk action bar */}
+            {selectedIds.size > 0 && (
+              <div className="bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl px-4 py-2.5 flex items-center gap-3 flex-wrap flex-shrink-0">
+                <span className="text-sm font-medium text-[#2563EB]">Выбрано: {selectedIds.size}</span>
+                <select value={bulkAction} onChange={(e) => { setBulkAction(e.target.value); setBulkValue(""); }}
+                  className="border border-[#BFDBFE] rounded-lg px-2 py-1 text-sm focus:outline-none cursor-pointer bg-white">
+                  <option value="">Действие…</option>
+                  <option value="status">Сменить статус</option>
+                  <option value="assign">Назначить</option>
+                  <option value="delete">Удалить</option>
+                </select>
+                {bulkAction === "status" && (
+                  <select value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}
+                    className="border border-[#BFDBFE] rounded-lg px-2 py-1 text-sm focus:outline-none cursor-pointer bg-white">
+                    <option value="">Выберите статус…</option>
+                    {allColumns.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                  </select>
+                )}
+                {bulkAction === "assign" && (
+                  <select value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}
+                    className="border border-[#BFDBFE] rounded-lg px-2 py-1 text-sm focus:outline-none cursor-pointer bg-white">
+                    <option value="">Не назначен</option>
+                    {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                )}
+                <button onClick={executeBulk} disabled={bulkLoading || !bulkAction || (bulkAction !== "delete" && !bulkValue)}
+                  className="px-3 py-1 bg-[#2563EB] text-white text-sm rounded-lg hover:bg-[#1D4ED8] disabled:opacity-40 cursor-pointer">
+                  {bulkLoading ? "…" : "Применить"}
+                </button>
+                <button onClick={() => setSelectedIds(new Set())} className="text-xs text-[#64748B] hover:text-[#1E293B] cursor-pointer ml-auto">Снять выделение</button>
+              </div>
+            )}
             <div className="bg-white rounded-xl border border-[#E2E8F0] shadow-sm overflow-hidden">
               <table className="w-full">
                 <thead>
                   <tr className="bg-[#F8F9FA] border-b border-[#E2E8F0]">
+                    <th className="px-4 py-3 w-10">
+                      <input type="checkbox" checked={sortedList.length > 0 && selectedIds.size === sortedList.length}
+                        onChange={toggleSelectAll} className="cursor-pointer" />
+                    </th>
                     {([
                       { key: "name", label: "Имя" },
                       { key: null, label: "Телефон" },
@@ -514,26 +697,30 @@ export function CRMPage() {
                 </thead>
                 <tbody>
                   {sortedList.length === 0 && (
-                    <tr><td colSpan={10} className="text-center py-16 text-[#94A3B8]">Заявок нет</td></tr>
+                    <tr><td colSpan={11} className="text-center py-16 text-[#94A3B8]">Заявок нет</td></tr>
                   )}
                   {sortedList.map((lead) => {
                     const colDef = allColumns.find((c) => c.id === lead.status);
+                    const isSelected = selectedIds.has(lead.id);
                     return (
-                      <tr key={lead.id} onClick={() => navigate(`/crm/${lead.id}`)}
-                        className="border-b border-[#F1F5F9] last:border-0 hover:bg-[#F8FAFC] cursor-pointer">
-                        <td className="px-4 py-3 font-medium text-sm text-[#1E293B]">{lead.name}</td>
-                        <td className="px-4 py-3 text-sm text-[#64748B]">{lead.phone ?? "—"}</td>
-                        <td className="px-4 py-3 text-sm text-[#64748B]">{lead.email ?? "—"}</td>
-                        <td className="px-4 py-3 text-sm text-[#64748B]">{SOURCE_LABELS[lead.source] ?? lead.source}</td>
-                        <td className="px-4 py-3">
+                      <tr key={lead.id}
+                        className={`border-b border-[#F1F5F9] last:border-0 hover:bg-[#F8FAFC] cursor-pointer ${isSelected ? "bg-blue-50/40" : ""}`}>
+                        <td className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
+                          <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(lead.id)} className="cursor-pointer" />
+                        </td>
+                        <td className="px-4 py-3 font-medium text-sm text-[#1E293B]" onClick={() => navigate(`/crm/${lead.id}`)}>{lead.name}</td>
+                        <td className="px-4 py-3 text-sm text-[#64748B]" onClick={() => navigate(`/crm/${lead.id}`)}>{lead.phone ?? "—"}</td>
+                        <td className="px-4 py-3 text-sm text-[#64748B]" onClick={() => navigate(`/crm/${lead.id}`)}>{lead.email ?? "—"}</td>
+                        <td className="px-4 py-3 text-sm text-[#64748B]" onClick={() => navigate(`/crm/${lead.id}`)}>{SOURCE_LABELS[lead.source] ?? lead.source}</td>
+                        <td className="px-4 py-3" onClick={() => navigate(`/crm/${lead.id}`)}>
                           <span className="text-xs font-medium px-2 py-0.5 rounded-full"
                             style={{ background: (colDef?.color ?? "#6366F1") + "20", color: colDef?.color ?? "#6366F1" }}>
                             {colDef?.label ?? lead.status}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-sm text-green-600 font-medium">{fmtMoney(lead.profit)}</td>
-                        <td className="px-4 py-3 text-sm text-[#64748B]">{lead.assignee_name ?? "—"}</td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 text-sm text-green-600 font-medium" onClick={() => navigate(`/crm/${lead.id}`)}>{fmtMoney(lead.profit)}</td>
+                        <td className="px-4 py-3 text-sm text-[#64748B]" onClick={() => navigate(`/crm/${lead.id}`)}>{lead.assignee_name ?? "—"}</td>
+                        <td className="px-4 py-3" onClick={() => navigate(`/crm/${lead.id}`)}>
                           <div className="flex gap-1 flex-wrap">
                             {lead.tags?.slice(0, 3).map((t) => (
                               <span key={t.id} className="text-[10px] px-1.5 py-0.5 rounded-full text-white font-medium" style={{ background: t.color }}>{t.name}</span>
@@ -541,7 +728,7 @@ export function CRMPage() {
                             {(lead.tags?.length ?? 0) > 3 && <span className="text-[10px] text-[#94A3B8]">+{(lead.tags?.length ?? 0) - 3}</span>}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-sm text-[#94A3B8]">{fmtDate(lead.created_at)}</td>
+                        <td className="px-4 py-3 text-sm text-[#94A3B8]" onClick={() => navigate(`/crm/${lead.id}`)}>{fmtDate(lead.created_at)}</td>
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <button onClick={() => handleDelete(lead.id)} className="text-[#94A3B8] hover:text-red-500 cursor-pointer text-sm">🗑️</button>
                         </td>
@@ -557,43 +744,65 @@ export function CRMPage() {
 
       {/* Create modal */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowCreate(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setShowCreate(false); setDuplicateWarning(null); }}>
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-[#1E293B] mb-4">Новая заявка</h2>
-            <form onSubmit={handleCreate} className="flex flex-col gap-3">
-              {[
-                { label: "Имя *", val: form.name, key: "name" as keyof CreateForm, ph: "Иван Иванов" },
-                { label: "Телефон", val: form.phone, key: "phone" as keyof CreateForm, ph: "+7 900 000-00-00" },
-                { label: "Email", val: form.email, key: "email" as keyof CreateForm, ph: "ivan@example.com" },
-              ].map(({ label, val, key, ph }) => (
-                <div key={key} className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-[#1E293B]">{label}</label>
-                  <input value={val} onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))} placeholder={ph}
-                    className="border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
+            {duplicateWarning ? (
+              <div className="flex flex-col gap-4">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <p className="text-sm font-medium text-yellow-800">⚠️ Возможный дубликат</p>
+                  <p className="text-sm text-yellow-700 mt-1">
+                    Лид с таким телефоном уже существует: <strong>{duplicateWarning.name}</strong>
+                  </p>
                 </div>
-              ))}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-[#1E293B]">Источник</label>
-                <select value={form.source} onChange={(e) => setForm((p) => ({ ...p, source: e.target.value }))}
-                  className="border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]">
-                  <option value="manual">Вручную</option>
-                  <option value="website">Сайт</option>
-                  <option value="other">Другое</option>
-                </select>
+                <div className="flex gap-2">
+                  <button onClick={() => { navigate(`/crm/${duplicateWarning.id}`); setShowCreate(false); setDuplicateWarning(null); }}
+                    className="flex-1 px-4 py-2 text-sm border border-[#2563EB] text-[#2563EB] rounded-lg hover:bg-blue-50 cursor-pointer">
+                    Открыть существующий
+                  </button>
+                  <button onClick={(e) => handleCreate(e, true)}
+                    className="flex-1 px-4 py-2 text-sm bg-[#2563EB] text-white rounded-lg hover:bg-[#1D4ED8] cursor-pointer">
+                    Создать всё равно
+                  </button>
+                </div>
+                <button onClick={() => setDuplicateWarning(null)} className="text-sm text-[#64748B] hover:underline cursor-pointer text-center">← Вернуться к форме</button>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-[#1E293B]">Заметка</label>
-                <textarea value={form.extra} onChange={(e) => setForm((p) => ({ ...p, extra: e.target.value }))}
-                  rows={2} className="border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] resize-none" />
-              </div>
-              {error && <p className="text-sm text-red-500">{error}</p>}
-              <div className="flex gap-2 justify-end pt-1">
-                <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm border border-[#E2E8F0] rounded-lg hover:bg-[#F8F9FA] cursor-pointer">Отмена</button>
-                <button type="submit" disabled={submitting} className="px-4 py-2 text-sm bg-[#2563EB] text-white rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 cursor-pointer">
-                  {submitting ? "Создаю…" : "Создать"}
-                </button>
-              </div>
-            </form>
+            ) : (
+              <form onSubmit={(e) => handleCreate(e)} className="flex flex-col gap-3">
+                {[
+                  { label: "Имя *", val: form.name, key: "name" as keyof CreateForm, ph: "Иван Иванов" },
+                  { label: "Телефон", val: form.phone, key: "phone" as keyof CreateForm, ph: "+7 900 000-00-00" },
+                  { label: "Email", val: form.email, key: "email" as keyof CreateForm, ph: "ivan@example.com" },
+                ].map(({ label, val, key, ph }) => (
+                  <div key={key} className="flex flex-col gap-1.5">
+                    <label className="text-sm font-medium text-[#1E293B]">{label}</label>
+                    <input value={val} onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))} placeholder={ph}
+                      className="border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
+                  </div>
+                ))}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-[#1E293B]">Источник</label>
+                  <select value={form.source} onChange={(e) => setForm((p) => ({ ...p, source: e.target.value }))}
+                    className="border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]">
+                    <option value="manual">Вручную</option>
+                    <option value="website">Сайт</option>
+                    <option value="other">Другое</option>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-[#1E293B]">Заметка</label>
+                  <textarea value={form.extra} onChange={(e) => setForm((p) => ({ ...p, extra: e.target.value }))}
+                    rows={2} className="border border-[#E2E8F0] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] resize-none" />
+                </div>
+                {error && <p className="text-sm text-red-500">{error}</p>}
+                <div className="flex gap-2 justify-end pt-1">
+                  <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm border border-[#E2E8F0] rounded-lg hover:bg-[#F8F9FA] cursor-pointer">Отмена</button>
+                  <button type="submit" disabled={submitting} className="px-4 py-2 text-sm bg-[#2563EB] text-white rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 cursor-pointer">
+                    {submitting ? "Создаю…" : "Создать"}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -608,6 +817,85 @@ export function CRMPage() {
           onFieldCreate={handleFieldCreate} onFieldDelete={handleFieldDelete}
         />
       )}
+
+      {/* Analytics modal */}
+      {showAnalytics && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAnalytics(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E2E8F0]">
+              <h2 className="font-semibold text-[#1E293B]">📊 Аналитика CRM</h2>
+              <button onClick={() => setShowAnalytics(false)} className="text-[#94A3B8] hover:text-[#64748B] cursor-pointer">✕</button>
+            </div>
+            {analyticsLoading ? (
+              <div className="flex items-center justify-center py-16 text-[#64748B]">Загрузка…</div>
+            ) : analytics ? (
+              <div className="p-6 flex flex-col gap-6">
+                {/* Summary */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-[#F8FAFC] rounded-xl p-4 text-center">
+                    <p className="text-2xl font-bold text-[#1E293B]">{analytics.total.count}</p>
+                    <p className="text-sm text-[#64748B] mt-1">Всего заявок</p>
+                  </div>
+                  <div className="bg-green-50 rounded-xl p-4 text-center">
+                    <p className="text-2xl font-bold text-green-600">
+                      {analytics.total.profit != null ? analytics.total.profit.toLocaleString("ru-RU") + " ₽" : "—"}
+                    </p>
+                    <p className="text-sm text-[#64748B] mt-1">Общая прибыль</p>
+                  </div>
+                  <div className="bg-red-50 rounded-xl p-4 text-center">
+                    <p className="text-2xl font-bold text-red-500">{analytics.overdueTasks}</p>
+                    <p className="text-sm text-[#64748B] mt-1">Просроченных задач</p>
+                  </div>
+                </div>
+
+                {/* Funnel by status */}
+                <div>
+                  <h3 className="font-semibold text-sm text-[#1E293B] mb-3">Воронка по статусам</h3>
+                  <div className="flex flex-col gap-2">
+                    {analytics.byStatus.map((s) => {
+                      const colDef = allColumns.find((c) => c.id === s.status);
+                      const pct = analytics.total.count > 0 ? Math.round((s.count / analytics.total.count) * 100) : 0;
+                      return (
+                        <div key={s.status} className="flex items-center gap-3">
+                          <span className="text-sm text-[#64748B] w-32 shrink-0 truncate">{colDef?.label ?? s.status}</span>
+                          <div className="flex-1 bg-[#F1F5F9] rounded-full h-5 overflow-hidden">
+                            <div className="h-5 rounded-full flex items-center justify-end pr-2 transition-all"
+                              style={{ width: `${Math.max(pct, 4)}%`, background: colDef?.color ?? "#6366F1" }}>
+                              <span className="text-[10px] text-white font-bold">{pct}%</span>
+                            </div>
+                          </div>
+                          <span className="text-sm font-semibold text-[#1E293B] w-8 text-right shrink-0">{s.count}</span>
+                          {s.profit != null && s.profit > 0 && (
+                            <span className="text-xs text-green-600 w-28 text-right shrink-0">{s.profit.toLocaleString("ru-RU")} ₽</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* By source */}
+                <div>
+                  <h3 className="font-semibold text-sm text-[#1E293B] mb-3">По источникам</h3>
+                  <div className="flex gap-3 flex-wrap">
+                    {analytics.bySource.map((s) => (
+                      <div key={s.source} className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-4 py-3 text-center">
+                        <p className="text-xl font-bold text-[#1E293B]">{s.count}</p>
+                        <p className="text-xs text-[#64748B] mt-0.5">{SOURCE_LABELS[s.source] ?? s.source}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-center py-8 text-[#94A3B8]">Нет данных</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Backdrop for notifications */}
+      {showNotifications && <div className="fixed inset-0 z-20" onClick={() => setShowNotifications(false)} />}
     </AppLayout>
   );
 }

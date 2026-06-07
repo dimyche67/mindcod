@@ -80,23 +80,20 @@ router.use(authMiddleware);
 
 // GET /api/crm/leads
 router.get("/leads", (req, res) => {
-  const { status, search, assigned } = req.query;
+  const { status, search, assigned, source, date_from, date_to } = req.query;
   let sql = "SELECT * FROM crm_leads WHERE company_id = ?";
   const params = [req.user.companyId];
 
-  if (status) {
-    sql += " AND status = ?";
-    params.push(status);
-  }
+  if (status) { sql += " AND status = ?"; params.push(status); }
   if (search?.trim()) {
     sql += " AND (name LIKE ? OR phone LIKE ? OR email LIKE ?)";
     const q = `%${search.trim()}%`;
     params.push(q, q, q);
   }
-  if (assigned) {
-    sql += " AND assigned_to = ?";
-    params.push(assigned);
-  }
+  if (assigned) { sql += " AND assigned_to = ?"; params.push(assigned); }
+  if (source) { sql += " AND source = ?"; params.push(source); }
+  if (date_from) { sql += " AND created_at >= ?"; params.push(date_from); }
+  if (date_to) { sql += " AND created_at <= ?"; params.push(date_to + "T23:59:59"); }
 
   sql += " ORDER BY created_at DESC";
   let leads = db.prepare(sql).all(...params).map(parseLead);
@@ -107,8 +104,14 @@ router.get("/leads", (req, res) => {
 
 // POST /api/crm/leads
 router.post("/leads", (req, res) => {
-  const { name, phone, email, source, custom_fields } = req.body ?? {};
+  const { name, phone, email, source, custom_fields, force } = req.body ?? {};
   if (!name?.trim()) return res.status(400).json({ ok: false, error: "Имя обязательно" });
+
+  // Duplicate check by phone
+  if (phone?.trim() && !force) {
+    const dup = db.prepare("SELECT id, name FROM crm_leads WHERE company_id = ? AND phone = ?").get(req.user.companyId, phone.trim());
+    if (dup) return res.status(200).json({ ok: false, duplicate: true, existing: dup });
+  }
 
   const id = randomUUID();
   const ts = now();
@@ -163,6 +166,14 @@ router.patch("/leads/:id", (req, res) => {
     changes.push(`Ответственный: ${u?.name ?? "—"}`);
   }
   if (profit !== undefined) changes.push(`Прибыль: ${profit != null ? Number(profit).toLocaleString("ru-RU") + " ₽" : "—"}`);
+
+  // Create notification when lead is assigned
+  if (assigned_to !== undefined && assigned_to && assigned_to !== lead.assigned_to) {
+    const notifId = randomUUID();
+    db.prepare(
+      "INSERT INTO crm_notifications (id, company_id, user_id, type, lead_id, lead_name, message, read, created_at) VALUES (?, ?, ?, 'assigned', ?, ?, ?, 0, ?)"
+    ).run(notifId, req.user.companyId, assigned_to, req.params.id, lead.name, `Вам назначена заявка: ${lead.name}`, now());
+  }
 
   const cf = custom_fields && typeof custom_fields === "object" ? JSON.stringify(custom_fields) : lead.custom_fields;
   const profitVal = profit !== undefined ? (profit != null ? parseFloat(profit) : null) : undefined;
@@ -227,11 +238,11 @@ router.delete("/leads/:id/comments/:commentId", (req, res) => {
 router.post("/leads/:id/tasks", (req, res) => {
   const lead = db.prepare("SELECT id FROM crm_leads WHERE id = ? AND company_id = ?").get(req.params.id, req.user.companyId);
   if (!lead) return res.status(404).json({ ok: false, error: "Заявка не найдена" });
-  const { title } = req.body ?? {};
+  const { title, due_date, priority } = req.body ?? {};
   if (!title?.trim()) return res.status(400).json({ ok: false, error: "Название задачи обязательно" });
   const id = randomUUID();
-  db.prepare("INSERT INTO crm_tasks (id, lead_id, title, done, created_by, created_at) VALUES (?, ?, ?, 0, ?, ?)")
-    .run(id, req.params.id, title.trim(), req.user.userId, now());
+  db.prepare("INSERT INTO crm_tasks (id, lead_id, title, done, due_date, priority, created_by, created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?)")
+    .run(id, req.params.id, title.trim(), due_date ?? null, priority ?? "normal", req.user.userId, now());
   addHistory(req.params.id, req.user.userId, req.user.name, "Добавлена задача", title.trim());
   res.status(201).json({ ok: true, task: db.prepare("SELECT * FROM crm_tasks WHERE id = ?").get(id) });
 });
@@ -240,9 +251,9 @@ router.patch("/leads/:id/tasks/:taskId", (req, res) => {
   const task = db.prepare("SELECT t.* FROM crm_tasks t JOIN crm_leads l ON l.id = t.lead_id WHERE t.id = ? AND l.company_id = ?")
     .get(req.params.taskId, req.user.companyId);
   if (!task) return res.status(404).json({ ok: false, error: "Задача не найдена" });
-  const { title, done } = req.body ?? {};
-  db.prepare("UPDATE crm_tasks SET title = COALESCE(?, title), done = COALESCE(?, done) WHERE id = ?")
-    .run(title?.trim() ?? null, done !== undefined ? (done ? 1 : 0) : null, req.params.taskId);
+  const { title, done, due_date, priority } = req.body ?? {};
+  db.prepare("UPDATE crm_tasks SET title = COALESCE(?, title), done = COALESCE(?, done), due_date = COALESCE(?, due_date), priority = COALESCE(?, priority) WHERE id = ?")
+    .run(title?.trim() ?? null, done !== undefined ? (done ? 1 : 0) : null, due_date !== undefined ? (due_date ?? null) : null, priority ?? null, req.params.taskId);
   if (done !== undefined) addHistory(req.params.id, req.user.userId, req.user.name, done ? "Задача выполнена" : "Задача возобновлена", task.title);
   res.json({ ok: true, task: db.prepare("SELECT * FROM crm_tasks WHERE id = ?").get(req.params.taskId) });
 });
@@ -355,6 +366,73 @@ router.delete("/fields/:id", (req, res) => {
 router.get("/members", (req, res) => {
   const members = db.prepare("SELECT id, name, email, role FROM users WHERE company_id = ? ORDER BY name ASC").all(req.user.companyId);
   res.json({ ok: true, members });
+});
+
+// ── Bulk actions ──────────────────────────────────────────────────────────────
+router.post("/leads/bulk", (req, res) => {
+  const { action, ids, value } = req.body ?? {};
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ ok: false, error: "ids обязательны" });
+
+  // Verify all leads belong to this company
+  const placeholders = ids.map(() => "?").join(",");
+  const owned = db.prepare(`SELECT id FROM crm_leads WHERE id IN (${placeholders}) AND company_id = ?`).all(...ids, req.user.companyId);
+  if (owned.length !== ids.length) return res.status(403).json({ ok: false, error: "Нет доступа к некоторым заявкам" });
+
+  if (action === "status") {
+    const validStatuses = getValidStatuses(req.user.companyId);
+    if (!validStatuses.includes(value)) return res.status(400).json({ ok: false, error: "Неверный статус" });
+    db.prepare(`UPDATE crm_leads SET status = ?, updated_at = ? WHERE id IN (${placeholders})`).run(value, now(), ...ids);
+  } else if (action === "assign") {
+    db.prepare(`UPDATE crm_leads SET assigned_to = ?, updated_at = ? WHERE id IN (${placeholders})`).run(value || null, now(), ...ids);
+  } else if (action === "delete") {
+    db.prepare(`DELETE FROM crm_lead_tags WHERE lead_id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM crm_comments WHERE lead_id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM crm_tasks WHERE lead_id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM crm_history WHERE lead_id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM crm_leads WHERE id IN (${placeholders})`).run(...ids);
+  } else {
+    return res.status(400).json({ ok: false, error: "Неверное действие" });
+  }
+
+  res.json({ ok: true, affected: ids.length });
+});
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+router.get("/analytics", (req, res) => {
+  const { date_from, date_to } = req.query;
+  let where = "WHERE company_id = ?";
+  const params = [req.user.companyId];
+  if (date_from) { where += " AND created_at >= ?"; params.push(date_from); }
+  if (date_to) { where += " AND created_at <= ?"; params.push(date_to + "T23:59:59"); }
+
+  const byStatus = db.prepare(`SELECT status, COUNT(*) as count, SUM(profit) as profit FROM crm_leads ${where} GROUP BY status`).all(...params);
+  const bySource = db.prepare(`SELECT source, COUNT(*) as count FROM crm_leads ${where} GROUP BY source`).all(...params);
+  const total = db.prepare(`SELECT COUNT(*) as count, SUM(profit) as profit FROM crm_leads ${where}`).get(...params);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const overdue = db.prepare(
+    `SELECT COUNT(*) as count FROM crm_tasks t JOIN crm_leads l ON l.id = t.lead_id WHERE l.company_id = ? AND t.done = 0 AND t.due_date IS NOT NULL AND t.due_date < ?`
+  ).get(req.user.companyId, today);
+
+  res.json({ ok: true, byStatus, bySource, total, overdueTasks: overdue.count });
+});
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+router.get("/notifications", (req, res) => {
+  const notifs = db.prepare(
+    "SELECT * FROM crm_notifications WHERE user_id = ? AND company_id = ? ORDER BY created_at DESC LIMIT 50"
+  ).all(req.user.userId, req.user.companyId);
+  res.json({ ok: true, notifications: notifs });
+});
+
+router.patch("/notifications/read-all", (req, res) => {
+  db.prepare("UPDATE crm_notifications SET read = 1 WHERE user_id = ? AND company_id = ?").run(req.user.userId, req.user.companyId);
+  res.json({ ok: true });
+});
+
+router.patch("/notifications/:id/read", (req, res) => {
+  db.prepare("UPDATE crm_notifications SET read = 1 WHERE id = ? AND user_id = ?").run(req.params.id, req.user.userId);
+  res.json({ ok: true });
 });
 
 export default router;

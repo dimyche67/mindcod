@@ -49,6 +49,8 @@ export function LeadPage() {
   const [commentText, setCommentText] = useState("");
   const [addingComment, setAddingComment] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
+  const [taskDueDate, setTaskDueDate] = useState("");
+  const [taskPriority, setTaskPriority] = useState("normal");
   const [addingTask, setAddingTask] = useState(false);
 
   // Tags & members
@@ -182,9 +184,15 @@ export function LeadPage() {
     if (!lead || !taskTitle.trim()) return;
     setAddingTask(true);
     try {
-      const res = await apiCreateTask(lead.id, taskTitle.trim());
+      const res = await apiCreateTask(lead.id, {
+        title: taskTitle.trim(),
+        due_date: taskDueDate || null,
+        priority: taskPriority,
+      });
       setTasks((p) => [...p, res.task]);
       setTaskTitle("");
+      setTaskDueDate("");
+      setTaskPriority("normal");
       await refreshHistory();
     } catch { /* ignore */ }
     finally { setAddingTask(false); }
@@ -412,24 +420,52 @@ export function LeadPage() {
             {/* Tasks */}
             {tab === "tasks" && (
               <div className="flex flex-col gap-3">
-                {tasks.map((task) => (
-                  <div key={task.id} className="flex items-center gap-3 group">
-                    <button onClick={() => toggleTask(task)}
-                      className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 cursor-pointer transition-colors ${task.done ? "bg-[#2563EB] border-[#2563EB]" : "border-[#CBD5E1] hover:border-[#2563EB]"}`}>
-                      {task.done ? <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg> : null}
-                    </button>
-                    <span className={`flex-1 text-sm ${task.done ? "line-through text-[#94A3B8]" : "text-[#1E293B]"}`}>{task.title}</span>
-                    <button onClick={() => removeTask(task)}
-                      className="opacity-0 group-hover:opacity-100 text-[#94A3B8] hover:text-red-500 cursor-pointer transition-opacity">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                  </div>
-                ))}
-                <form onSubmit={addTask} className="flex gap-2 mt-1">
+                {tasks.map((task) => {
+                  const isOverdue = !task.done && task.due_date && task.due_date < new Date().toISOString().slice(0, 10);
+                  const isDueToday = !task.done && task.due_date && task.due_date === new Date().toISOString().slice(0, 10);
+                  const priorityColors: Record<string, string> = { high: "text-red-500", normal: "text-[#94A3B8]", low: "text-[#CBD5E1]" };
+                  return (
+                    <div key={task.id} className={`flex items-center gap-3 group p-2 rounded-lg ${isOverdue ? "bg-red-50" : isDueToday ? "bg-yellow-50" : ""}`}>
+                      <button onClick={() => toggleTask(task)}
+                        className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 cursor-pointer transition-colors ${task.done ? "bg-[#2563EB] border-[#2563EB]" : "border-[#CBD5E1] hover:border-[#2563EB]"}`}>
+                        {task.done ? <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg> : null}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <span className={`text-sm ${task.done ? "line-through text-[#94A3B8]" : "text-[#1E293B]"}`}>{task.title}</span>
+                        {task.due_date && (
+                          <div className={`text-xs mt-0.5 ${isOverdue ? "text-red-500 font-medium" : isDueToday ? "text-yellow-600 font-medium" : "text-[#94A3B8]"}`}>
+                            {isOverdue ? "⚠️ Просрочено: " : isDueToday ? "📅 Сегодня: " : "📅 "}
+                            {new Date(task.due_date).toLocaleDateString("ru-RU", { day: "2-digit", month: "short" })}
+                          </div>
+                        )}
+                      </div>
+                      {task.priority && task.priority !== "normal" && (
+                        <span className={`text-xs font-medium shrink-0 ${priorityColors[task.priority]}`}>
+                          {task.priority === "high" ? "↑ Высокий" : "↓ Низкий"}
+                        </span>
+                      )}
+                      <button onClick={() => removeTask(task)}
+                        className="opacity-0 group-hover:opacity-100 text-[#94A3B8] hover:text-red-500 cursor-pointer transition-opacity">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </div>
+                  );
+                })}
+                <form onSubmit={addTask} className="flex flex-col gap-2 mt-1 pt-2 border-t border-[#F1F5F9]">
                   <input value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} placeholder="Новая задача…"
                     className="flex-1 border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
-                  <button type="submit" disabled={addingTask || !taskTitle.trim()}
-                    className="px-4 py-2 bg-[#2563EB] text-white text-sm rounded-lg hover:bg-[#1D4ED8] disabled:opacity-40 cursor-pointer">Добавить</button>
+                  <div className="flex gap-2">
+                    <input type="date" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)}
+                      className="border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#2563EB] cursor-pointer" />
+                    <select value={taskPriority} onChange={(e) => setTaskPriority(e.target.value)}
+                      className="border border-[#E2E8F0] rounded-lg px-2 py-2 text-sm focus:outline-none cursor-pointer bg-white">
+                      <option value="low">Низкий</option>
+                      <option value="normal">Обычный</option>
+                      <option value="high">Высокий</option>
+                    </select>
+                    <button type="submit" disabled={addingTask || !taskTitle.trim()}
+                      className="px-4 py-2 bg-[#2563EB] text-white text-sm rounded-lg hover:bg-[#1D4ED8] disabled:opacity-40 cursor-pointer">Добавить</button>
+                  </div>
                 </form>
               </div>
             )}
