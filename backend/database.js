@@ -202,6 +202,40 @@ db.exec(`
     created_at TEXT,
     updated_at TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS msg_rooms (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('direct','group','channel')),
+    name TEXT,
+    description TEXT,
+    created_by TEXT,
+    created_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS msg_room_members (
+    room_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role TEXT DEFAULT 'member',
+    joined_at TEXT,
+    last_read_at TEXT,
+    PRIMARY KEY (room_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS msg_messages (
+    id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    content TEXT,
+    type TEXT DEFAULT 'text',
+    file_name TEXT,
+    file_size INTEGER,
+    file_mime TEXT,
+    file_data TEXT,
+    created_at TEXT,
+    edited_at TEXT,
+    deleted INTEGER DEFAULT 0
+  );
 `);
 
 // ── Migrations (safe — ignore if column exists) ───────────────────────────────

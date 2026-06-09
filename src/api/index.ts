@@ -358,3 +358,90 @@ export async function apiRegenerateIntegrationKey(id: string) {
 export async function apiDeleteIntegration(id: string) {
   return req<Record<string, never>>(`/api/integrations/${id}`, { method: "DELETE" });
 }
+
+// ---- Messenger ----
+
+export type MsgRoom = {
+  id: string;
+  company_id: string;
+  type: "direct" | "group" | "channel";
+  name: string | null;
+  description: string | null;
+  created_by: string;
+  created_at: string;
+  unread_count: number;
+  last_message: string | null;
+  last_message_at: string | null;
+  last_message_user_id: string | null;
+  otherUser?: { id: string; name: string } | null;
+  members?: { id: string; name: string; role: string }[];
+};
+
+export type MsgMessage = {
+  id: string;
+  room_id: string;
+  user_id: string;
+  user_name: string;
+  content: string | null;
+  type: "text" | "image" | "file";
+  file_name: string | null;
+  file_size: number | null;
+  file_mime: string | null;
+  created_at: string;
+  deleted: number;
+};
+
+export type MsgUser = { id: string; name: string; email: string };
+
+export async function apiMsgGetRooms() {
+  return req<{ rooms: MsgRoom[] }>("/api/messenger/rooms");
+}
+
+export async function apiMsgCreateRoom(data: { type: "group" | "channel"; name: string; description?: string; memberIds?: string[] }) {
+  return req<{ room: MsgRoom }>("/api/messenger/rooms", { method: "POST", body: JSON.stringify(data) });
+}
+
+export async function apiMsgOpenDirect(targetUserId: string) {
+  return req<{ roomId: string }>("/api/messenger/rooms/direct", { method: "POST", body: JSON.stringify({ targetUserId }) });
+}
+
+export async function apiMsgGetMessages(roomId: string, before?: string) {
+  const qs = before ? `?before=${encodeURIComponent(before)}` : "";
+  return req<{ messages: MsgMessage[] }>(`/api/messenger/rooms/${roomId}/messages${qs}`);
+}
+
+export async function apiMsgSendMessage(roomId: string, content: string) {
+  return req<{ message: MsgMessage }>(`/api/messenger/rooms/${roomId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function apiMsgUploadFile(roomId: string, file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const token = localStorage.getItem("aioffice_token");
+  const res = await fetch(`${BASE}/api/messenger/rooms/${roomId}/upload`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const data = await res.json() as { ok: boolean; message?: MsgMessage; error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Ошибка загрузки");
+  return data as { ok: boolean; message: MsgMessage };
+}
+
+export async function apiMsgGetUsers() {
+  return req<{ users: MsgUser[] }>("/api/messenger/users");
+}
+
+export async function apiMsgAddMembers(roomId: string, memberIds: string[]) {
+  return req<Record<string, never>>(`/api/messenger/rooms/${roomId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ memberIds }),
+  });
+}
+
+export async function apiMsgDeleteMessage(messageId: string) {
+  return req<Record<string, never>>(`/api/messenger/messages/${messageId}`, { method: "DELETE" });
+}

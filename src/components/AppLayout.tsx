@@ -12,6 +12,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { to: "/dashboard",     icon: "🏢", label: "Отделы" },
+  { to: "/messenger",    icon: "💬", label: "Чат" },
   { to: "/crm",          icon: "📋", label: "CRM",          match: (p) => p.startsWith("/crm") && !p.startsWith("/crm/integrations") },
   { to: "/crm/integrations", icon: "🔌", label: "Интеграции", match: (p) => p.startsWith("/crm/integrations") },
   { to: "/team",         icon: "👥", label: "Команда",       adminOnly: true },

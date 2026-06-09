@@ -14,6 +14,7 @@ import { LeadPage } from "./pages/LeadPage";
 import { HelpPage } from "./pages/HelpPage";
 import { SuperAdminPage } from "./pages/SuperAdminPage";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
+import { MessengerPage } from "./pages/MessengerPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem("aioffice_token");
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="/crm/:id" element={<ProtectedRoute><LeadPage /></ProtectedRoute>} />
           <Route path="/help" element={<ProtectedRoute><HelpPage /></ProtectedRoute>} />
           <Route path="/crm/integrations" element={<ProtectedRoute><IntegrationsPage /></ProtectedRoute>} />
+          <Route path="/messenger" element={<ProtectedRoute><MessengerPage /></ProtectedRoute>} />
           <Route path="/superadmin" element={<SuperAdminPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
