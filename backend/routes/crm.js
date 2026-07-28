@@ -119,8 +119,8 @@ router.post("/leads", (req, res) => {
 
   db.prepare(
     "INSERT INTO crm_leads (id, company_id, status, name, phone, email, source, custom_fields, created_by, created_at, updated_at) VALUES (?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).run(id, req.user.companyId, name.trim(), phone ?? null, email ?? null, source ?? "manual", cf, req.user.userId, ts, ts);
-  addHistory(id, req.user.userId, req.user.name, "Создана заявка", "Добавлена вручную");
+  ).run(id, req.user.companyId, name.trim(), phone ?? null, email ?? null, source ?? "manual", cf, req.user.id, ts, ts);
+  addHistory(id, req.user.id, req.user.name, "Создана заявка", "Добавлена вручную");
 
   let lead = parseLead(db.prepare("SELECT * FROM crm_leads WHERE id = ?").get(id));
   lead = attachTags([lead], req.user.companyId)[0];
@@ -194,7 +194,7 @@ router.patch("/leads/:id", (req, res) => {
       now(), req.params.id
     );
 
-  if (changes.length) addHistory(req.params.id, req.user.userId, req.user.name, "Обновлена заявка", changes.join("; "));
+  if (changes.length) addHistory(req.params.id, req.user.id, req.user.name, "Обновлена заявка", changes.join("; "));
 
   let updated = parseLead(db.prepare("SELECT * FROM crm_leads WHERE id = ?").get(req.params.id));
   updated = attachTags([updated], req.user.companyId)[0];
@@ -222,8 +222,8 @@ router.post("/leads/:id/comments", (req, res) => {
   if (!text?.trim()) return res.status(400).json({ ok: false, error: "Текст комментария обязателен" });
   const id = randomUUID();
   db.prepare("INSERT INTO crm_comments (id, lead_id, user_id, user_name, text, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(id, req.params.id, req.user.userId, req.user.name, text.trim(), now());
-  addHistory(req.params.id, req.user.userId, req.user.name, "Добавлен комментарий");
+    .run(id, req.params.id, req.user.id, req.user.name, text.trim(), now());
+  addHistory(req.params.id, req.user.id, req.user.name, "Добавлен комментарий");
   res.status(201).json({ ok: true, comment: db.prepare("SELECT * FROM crm_comments WHERE id = ?").get(id) });
 });
 
@@ -243,8 +243,8 @@ router.post("/leads/:id/tasks", (req, res) => {
   if (!title?.trim()) return res.status(400).json({ ok: false, error: "Название задачи обязательно" });
   const id = randomUUID();
   db.prepare("INSERT INTO crm_tasks (id, lead_id, title, done, due_date, priority, created_by, created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?)")
-    .run(id, req.params.id, title.trim(), due_date ?? null, priority ?? "normal", req.user.userId, now());
-  addHistory(req.params.id, req.user.userId, req.user.name, "Добавлена задача", title.trim());
+    .run(id, req.params.id, title.trim(), due_date ?? null, priority ?? "normal", req.user.id, now());
+  addHistory(req.params.id, req.user.id, req.user.name, "Добавлена задача", title.trim());
   res.status(201).json({ ok: true, task: db.prepare("SELECT * FROM crm_tasks WHERE id = ?").get(id) });
 });
 
@@ -255,7 +255,7 @@ router.patch("/leads/:id/tasks/:taskId", (req, res) => {
   const { title, done, due_date, priority } = req.body ?? {};
   db.prepare("UPDATE crm_tasks SET title = COALESCE(?, title), done = COALESCE(?, done), due_date = COALESCE(?, due_date), priority = COALESCE(?, priority) WHERE id = ?")
     .run(title?.trim() ?? null, done !== undefined ? (done ? 1 : 0) : null, due_date !== undefined ? (due_date ?? null) : null, priority ?? null, req.params.taskId);
-  if (done !== undefined) addHistory(req.params.id, req.user.userId, req.user.name, done ? "Задача выполнена" : "Задача возобновлена", task.title);
+  if (done !== undefined) addHistory(req.params.id, req.user.id, req.user.name, done ? "Задача выполнена" : "Задача возобновлена", task.title);
   res.json({ ok: true, task: db.prepare("SELECT * FROM crm_tasks WHERE id = ?").get(req.params.taskId) });
 });
 
@@ -421,8 +421,8 @@ router.post("/leads/:id/files", (req, res) => {
   if (!name || !data) return res.status(400).json({ ok: false, error: "name и data обязательны" });
   const id = randomUUID();
   db.prepare("INSERT INTO crm_lead_files (id, lead_id, company_id, name, size, mime_type, data, uploaded_by, uploader_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(id, req.params.id, req.user.companyId, name, size ?? 0, mime_type ?? "application/octet-stream", data, req.user.userId, req.user.name, now());
-  addHistory(req.params.id, req.user.userId, req.user.name, "Загружен файл", name);
+    .run(id, req.params.id, req.user.companyId, name, size ?? 0, mime_type ?? "application/octet-stream", data, req.user.id, req.user.name, now());
+  addHistory(req.params.id, req.user.id, req.user.name, "Загружен файл", name);
   const file = db.prepare("SELECT id, name, size, mime_type, uploader_name, created_at FROM crm_lead_files WHERE id = ?").get(id);
   res.status(201).json({ ok: true, file });
 });
@@ -442,7 +442,7 @@ router.delete("/leads/:id/files/:fileId", (req, res) => {
     .get(req.params.fileId, req.user.companyId);
   if (!file) return res.status(404).json({ ok: false, error: "Файл не найден" });
   db.prepare("DELETE FROM crm_lead_files WHERE id = ?").run(req.params.fileId);
-  addHistory(req.params.id, req.user.userId, req.user.name, "Удалён файл", file.name);
+  addHistory(req.params.id, req.user.id, req.user.name, "Удалён файл", file.name);
   res.json({ ok: true });
 });
 
@@ -499,17 +499,17 @@ router.get("/analytics", (req, res) => {
 router.get("/notifications", (req, res) => {
   const notifs = db.prepare(
     "SELECT * FROM crm_notifications WHERE user_id = ? AND company_id = ? ORDER BY created_at DESC LIMIT 50"
-  ).all(req.user.userId, req.user.companyId);
+  ).all(req.user.id, req.user.companyId);
   res.json({ ok: true, notifications: notifs });
 });
 
 router.patch("/notifications/read-all", (req, res) => {
-  db.prepare("UPDATE crm_notifications SET read = 1 WHERE user_id = ? AND company_id = ?").run(req.user.userId, req.user.companyId);
+  db.prepare("UPDATE crm_notifications SET read = 1 WHERE user_id = ? AND company_id = ?").run(req.user.id, req.user.companyId);
   res.json({ ok: true });
 });
 
 router.patch("/notifications/:id/read", (req, res) => {
-  db.prepare("UPDATE crm_notifications SET read = 1 WHERE id = ? AND user_id = ?").run(req.params.id, req.user.userId);
+  db.prepare("UPDATE crm_notifications SET read = 1 WHERE id = ? AND user_id = ?").run(req.params.id, req.user.id);
   res.json({ ok: true });
 });
 

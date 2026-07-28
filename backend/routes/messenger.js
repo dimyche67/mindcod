@@ -219,7 +219,7 @@ router.get("/messages/:id/file", (req, res) => {
 
 // Удалить сообщение
 router.delete("/messages/:id", (req, res) => {
-  const { userId } = req.user;
+  const { id: userId } = req.user;
   const msg = db.prepare("SELECT * FROM msg_messages WHERE id = ?").get(req.params.id);
   if (!msg) return res.status(404).json({ ok: false, error: "Не найдено" });
   if (msg.user_id !== userId) return res.status(403).json({ ok: false, error: "Нельзя удалить чужое сообщение" });

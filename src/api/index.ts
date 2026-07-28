@@ -205,7 +205,7 @@ export function apiLeadFileDownloadUrl(leadId: string, fileId: string) {
   return `/api/crm/leads/${leadId}/files/${fileId}/download?token=${token}`;
 }
 
-export async function apiUpdateLead(id: string, data: Partial<LeadCreateData & { status: CrmStatus; assigned_to: string }>) {
+export async function apiUpdateLead(id: string, data: Partial<LeadCreateData & { status: CrmStatus; assigned_to: string | null }>) {
   return req<{ lead: CrmLead }>(`/api/crm/leads/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 }
 

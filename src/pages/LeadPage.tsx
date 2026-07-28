@@ -179,7 +179,7 @@ export function LeadPage() {
     if (!lead) return;
     setSavingAssignee(true);
     try {
-      const res = await apiUpdateLead(lead.id, { assigned_to: userId ?? "" } as Parameters<typeof apiUpdateLead>[1]);
+      const res = await apiUpdateLead(lead.id, { assigned_to: userId } as Parameters<typeof apiUpdateLead>[1]);
       setLead({ ...lead, assigned_to: userId, assignee_name: res.lead.assignee_name } as LeadWithProfit);
       await refresh();
     } catch { /* ignore */ }
